@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <style>
   :root{--panel:rgba(9,11,15,.86);--line:rgba(255,255,255,.08);--txt:#e9ecf1;--mut:#9aa3b2;--acc:#f2b134;--route:#b65cff}
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -87,6 +88,23 @@
   .follow{position:absolute;right:14px;bottom:166px;width:42px;height:42px;padding:0;color:#fff;font-size:0;cursor:pointer;border:1px solid var(--line)}
   .follow::before{content:"➤";font-size:18px;display:inline-block;transform:rotate(-90deg)}
   .follow.on{border-color:var(--acc);color:var(--acc)}
+  .acct{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line);font-size:15px}
+  .acct b{font-family:Oswald;font-weight:500;letter-spacing:.04em} .acct .btn{margin-left:auto;padding:5px 9px;font-size:14px}
+  .tabs{display:flex;border-bottom:1px solid var(--line)} .tabs button{flex:1;background:none;border:0;border-bottom:3px solid transparent;color:var(--mut);font:inherit;font-size:15px;padding:9px;cursor:pointer;letter-spacing:.08em}
+  .tabs button.on{color:#fff;border-color:var(--acc)}
+  .lb{max-height:55vh;overflow:auto}
+  .lbr{display:grid;grid-template-columns:28px 1fr auto;gap:2px 10px;align-items:center;padding:8px 14px;border-bottom:1px solid var(--line);font-size:15px}
+  .lbr .rk{font-family:Oswald;font-size:18px;color:var(--mut);text-align:center} .lbr .nm{font-weight:700} .lbr .st{color:var(--mut);font-size:13px;grid-column:2/4}
+  .lbr .q{font-family:Oswald;font-size:18px} .lbr.me{background:rgba(242,177,52,.08)}
+  .ok{color:#5fe39b} .bad{color:#ff7b7b}
+  .limits{display:grid;grid-template-columns:repeat(5,1fr);gap:6px} .limits .btn{text-align:center;padding:8px 0}
+  .msg{color:var(--mut);font-size:14px;line-height:1.35}
+  .flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none;z-index:8}
+  .flash.go{animation:fl .5s ease-out}
+  @keyframes fl{0%{opacity:.85}100%{opacity:0}}
+  .ticket{position:absolute;left:50%;top:30%;transform:translate(-50%,-50%);z-index:7;display:none;text-align:center;padding:16px 22px;border-left:5px solid #5fe39b;min-width:240px}
+  .ticket.show{display:block} .ticket.bad{border-color:#ff5a5a}
+  .ticket b{display:block;font-family:Oswald;font-size:44px;line-height:1} .ticket span{display:block;font-size:16px;letter-spacing:.06em;margin-top:4px}
   .menuBtn{display:none;position:absolute;right:14px;top:14px;font-family:Oswald;letter-spacing:.12em}
   @media (max-width:700px){
     .hdr h1{font-size:24px}.hdr p{display:none}
@@ -113,8 +131,10 @@
 <div class="legend panel" id="legend">
   <div class="ttl"><span>LEGENDE</span><button id="closeLegend" aria-label="Legende schließen">✕</button></div>
   <div class="body">
+    <div class="acct" id="acct"><span id="acctTxt" class="msg">Nicht angemeldet</span><button class="btn" id="acctBtn">Anmelden</button></div>
     <div class="row" data-layer="shop"><canvas data-icon="shop"></canvas><span>Supermärkte</span><span class="cnt" id="cShop"></span></div>
     <div class="row" data-layer="fuel"><canvas data-icon="fuel"></canvas><span>Tankstellen</span><span class="cnt" id="cFuel"></span></div>
+    <div class="row" data-layer="blitz"><canvas data-icon="blitz"></canvas><span>Blitzer</span><span class="cnt" id="cBlitz">–</span></div>
     <div class="row off" data-layer="open"><canvas data-icon="clock"></canvas><span>Nur jetzt geöffnet</span><span class="cnt" id="cOpen">aus</span></div>
     <div class="search"><input id="q" type="search" placeholder="Suchen: Rewe, Aral, Straße, Viertel …" autocomplete="off"></div>
     <div class="results" id="results"></div>
@@ -123,6 +143,8 @@
       <button class="btn" id="btnNearShop">🛒 Nächster Supermarkt</button>
       <button class="btn" id="btnNearFuel">⛽ Nächste Tankstelle</button>
       <button class="btn" id="btnGps">📡 GPS starten</button>
+      <button class="btn" id="btnBlitz">📸 Blitzer aufstellen</button>
+      <button class="btn" id="btnRank">🏆 Rangliste</button>
     </div>
     <div class="hint" id="gpsHint">Tippe auf „GPS starten“ und erlaube den Standortzugriff.</div>
     <div class="attr">Kartendaten © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>-Mitwirkende (ODbL), Stand 09.11.2026</div>
@@ -162,6 +184,39 @@
     </form>
   </div>
 </div>
+<div class="flash" id="flash"></div>
+<div class="ticket panel" id="ticket"><b id="tkSpd"></b><span id="tkTxt"></span></div>
+<div class="modal" id="authModal"><div class="box panel">
+  <h3 style="border-color:var(--acc)" id="authTtl">ANMELDEN</h3>
+  <form class="in" id="authForm">
+    <input id="authMail" type="email" placeholder="E-Mail" autocomplete="email" required>
+    <input id="authPw" type="password" placeholder="Passwort (mind. 6 Zeichen)" autocomplete="current-password" minlength="6" required>
+    <input id="authName" placeholder="Spielername (für die Rangliste)" maxlength="24" style="display:none">
+    <div class="msg" id="authMsg"></div>
+    <div class="acts"><button type="submit" class="btn pri" id="authGo">Anmelden</button></div>
+    <div class="acts"><button type="button" class="btn" id="authSwitch">Neues Konto erstellen</button><button type="button" class="btn" id="authCancel">Abbrechen</button></div>
+  </form>
+</div></div>
+<div class="modal" id="nameModal"><div class="box panel">
+  <h3 style="border-color:var(--acc)">SPIELERNAME</h3>
+  <form class="in" id="nameForm"><div class="msg">Unter diesem Namen erscheinst du in der Rangliste.</div>
+    <input id="nameIn" maxlength="24" minlength="2" placeholder="z. B. Tommy" required>
+    <div class="acts"><button type="submit" class="btn pri">Speichern</button></div></form>
+</div></div>
+<div class="modal" id="blzModal"><div class="box panel">
+  <h3 style="border-color:#ff5a5a">BLITZER AUFSTELLEN</h3>
+  <form class="in" id="blzForm">
+    <input id="blzName" maxlength="40" placeholder="Name, z. B. Haunstetter Str." required>
+    <div class="msg">Erlaubtes Tempo (km/h):</div>
+    <div class="limits" id="limits"><button type="button" class="btn" data-l="30">30</button><button type="button" class="btn on" data-l="50">50</button><button type="button" class="btn" data-l="60">60</button><button type="button" class="btn" data-l="70">70</button><button type="button" class="btn" data-l="100">100</button></div>
+    <div class="acts"><button type="button" class="btn" id="blzCancel">Abbrechen</button><button type="submit" class="btn pri">Aufstellen</button></div>
+  </form>
+</div></div>
+<div class="modal" id="rankModal"><div class="box panel" style="width:min(440px,calc(100% - 24px))">
+  <h3 style="border-color:var(--acc);display:flex;justify-content:space-between">RANGLISTE <button class="btn" id="rankClose" style="padding:2px 9px">✕</button></h3>
+  <div class="tabs"><button class="on" data-t="rank">Sauberste Fahrer</button><button data-t="tix">Strafzettel</button></div>
+  <div class="lb" id="lb"></div>
+</div></div>
 <script>
 (() => {
 "use strict";
@@ -268,7 +323,7 @@ const store={get(k){try{return JSON.parse(localStorage.getItem(k))}catch(e){retu
 const [kx,ky]=proj(48.3665,10.8945); // Königsplatz
 let me = store.get("aug_me") || {x:kx, y:ky};
 const view = {x:me.x, y:me.y, s:0.3};
-const layers = {shop:true, fuel:true, crew:true, open:false};
+const layers = {shop:true, fuel:true, crew:true, blitz:true, open:false};
 let selected=null, wp=null, rt=null, mode=null, ready=false;
 let pins=[], names={}, myId=null, isOwner=false, db=null, userCap=null, canWrite=null;
 
@@ -328,6 +383,8 @@ function drawIcon(c,type,x,y,r,extra){
     c.fillStyle="#fff"; c.strokeStyle="rgba(0,0,0,.9)"; c.lineWidth=2.5; c.stroke(); c.fill(); }
   else if(type==="wp"){ c.translate(x,y); c.beginPath(); c.arc(0,-r,r*0.75,Math.PI*0.85,Math.PI*0.15,false); c.lineTo(0,0); c.closePath();
     c.fillStyle="#b65cff"; c.strokeStyle="rgba(0,0,0,.9)"; c.lineWidth=2; c.stroke(); c.fill(); c.beginPath(); c.arc(0,-r,r*0.28,0,7); c.fillStyle="#fff"; c.fill(); }
+  else if(type==="blitz"){ badge(c,x,y,r,"#e8423f"); const k=r/11; c.translate(x,y); c.scale(k,k); c.fillStyle="#fff";
+    c.fillRect(-7,-4,14,10); c.fillRect(-3,-6.5,6,3); c.beginPath(); c.arc(0,1,3.4,0,7); c.fillStyle="#e8423f"; c.fill(); c.beginPath(); c.arc(0,1,1.6,0,7); c.fillStyle="#fff"; c.fill(); }
   else if(type==="clock"){ badge(c,x,y,r,"#d7dbe2"); c.strokeStyle="#111"; c.lineWidth=r*0.17; c.beginPath(); c.moveTo(x,y-r*0.55); c.lineTo(x,y); c.lineTo(x+r*0.4,y+r*0.25); c.stroke(); }
   c.restore();
 }
@@ -350,6 +407,9 @@ function draw(){
   ctx.textAlign="left";
   if(layers.crew) for(const p of pins){ const [x,y]=toScreen(p.x,p.y,view,VW,VH); if(x<-30||x>VW+30||y<-30||y>VH+30) continue; drawIcon(ctx,"crew",x,y,r,p.kind);
     if(s>0.5) txt(p.label,x+r+5,y,13,1,"600 13px Rajdhani, sans-serif"); }
+  if(layers.blitz) for(const b of BLITZ){ const [x,y]=toScreen(b.x,b.y,view,VW,VH); if(x<-40||x>VW+40||y<-40||y>VH+40) continue;
+    if(s>0.4){ ctx.beginPath(); ctx.arc(x,y,b.radius_m*s,0,7); ctx.fillStyle="rgba(232,66,63,.12)"; ctx.fill(); ctx.strokeStyle="rgba(232,66,63,.5)"; ctx.lineWidth=1; ctx.stroke(); }
+    drawIcon(ctx,"blitz",x,y,r); if(s>0.6) txt(b.name+" · "+b.speed_limit,x+r+5,y,13,1,"600 13px Rajdhani, sans-serif"); }
   const vp=visiblePois();
   for(const p of vp){ const [x,y]=toScreen(p.x,p.y,view,VW,VH); if(x<-30||x>VW+30||y<-30||y>VH+30) continue; drawIcon(ctx,p.type,x,y,r);
     if(s>0.9) txt(p.name,x+r+5,y,13,1,"600 13px Rajdhani, sans-serif"); }
@@ -369,6 +429,7 @@ function draw(){
 function drawMini(){
   if(!MW||mcv.offsetParent===null) return; const v={x:me.x,y:me.y,s:0.05}; drawWorld(mctx,MW,MH,v,true); if(!ready) return;
   for(const p of visiblePois()){ let [x,y]=toScreen(p.x,p.y,v,MW,MH); if(x<-4||x>MW+4||y<-4||y>MH+4) continue; drawIcon(mctx,p.type,x,y,5); }
+  if(layers.blitz) for(const b of BLITZ){ const [x,y]=toScreen(b.x,b.y,v,MW,MH); if(x>-4&&x<MW+4&&y>-4&&y<MH+4) drawIcon(mctx,"blitz",x,y,5); }
   if(wp){ let [x,y]=toScreen(wp.x,wp.y,v,MW,MH); x=Math.max(8,Math.min(MW-8,x)); y=Math.max(14,Math.min(MH-4,y)); drawIcon(mctx,"wp",x,y-6,7); }
   mctx.save(); mctx.translate(MW/2,MH/2); mctx.rotate((gps.heading||0)*Math.PI/180); drawIcon(mctx,"me",0,0,8); mctx.restore(); $("miniLbl").textContent=placeOf(me.x,me.y);
 }
@@ -396,14 +457,15 @@ $("zin").onclick=()=>zoomAt(1.6,VW/2,VH/2); $("zout").onclick=()=>zoomAt(1/1.6,V
 $("zme").onclick=()=>{ flyTo(me.x,me.y); if(gps.on) setFollow(true); }; $("miniWrap").onclick=()=>flyTo(me.x,me.y);
 
 function hitTest(sx,sy){ const r=blipR(view.s)+6; let best=null,bd=1e9;
-  const cand=[...visiblePois(), ...(layers.crew?pins.map(p=>({...p,type:"crew"})):[])];
+  const cand=[...visiblePois(), ...(layers.blitz?BLITZ:[])];
   for(const p of cand){ const [x,y]=toScreen(p.x,p.y,view,VW,VH), d=hyp(x,y,sx,sy); if(d<r&&d<bd){bd=d;best=p} } return best; }
 function onTap(sx,sy){ if(!ready) return; const [wx,wy]=toWorld(sx,sy);
+  if(mode==="blitz"){ openBlzModal(wx,wy); return; }
   if(mode==="me"){ me={x:wx,y:wy}; store.set("aug_me",me); setMode(null); if(wp) setWaypoint(wp,true); toast("Standort gesetzt: "+placeOf(wx,wy)); requestDraw(); return; }
   
   select(hitTest(sx,sy)); }
-function setMode(m){ mode=m; cv.classList.toggle("picking",!!m); $("btnMe").classList.toggle("on",m==="me"); 
-  if(m==="me") toast("Tippe auf die Karte, um deinen Standort zu setzen.");
+function setMode(m){ mode=m; cv.classList.toggle("picking",!!m); $("btnMe").classList.toggle("on",m==="me"); $("btnBlitz").classList.toggle("on",m==="blitz"); 
+  if(m==="me") toast("Tippe auf die Karte, um deinen Standort zu setzen."); if(m==="blitz") toast("Tippe auf die Straße, wo der Blitzer stehen soll.");
   if(m&&innerWidth<=700) legend.classList.remove("open"); }
 
 // ---------- Info-Karte ----------
@@ -415,7 +477,16 @@ function select(p){
   const kv=$("cKv"); kv.replaceChildren(); const acts=$("cActs"); acts.replaceChildren();
   const add=(k,v,cls)=>{ const dt=document.createElement("dt"); dt.textContent=k; const dd=document.createElement("dd"); dd.textContent=v; if(cls) dd.className=cls; kv.append(dt,dd); };
   const air=hyp(me.x,me.y,p.x,p.y); let lat,lon;
-  if(p.type==="crew"){
+  if(p.type==="blitz"){
+    $("cName").textContent=p.name; $("cSub").textContent="Blitzer · "+placeOf(p.x,p.y);
+    add("Erlaubt",p.speed_limit+" km/h"); add("Aufgestellt von",PROF[p.created_by]||"Jemand aus der Crew"); add("Luftlinie",fmtKm(air));
+    const dt=document.createElement("dt"); dt.textContent="Letzte Durchfahrten"; dt.style.gridColumn="1/3"; dt.style.marginTop="6px"; kv.append(dt);
+    const box=document.createElement("dd"); box.style.gridColumn="1/3"; box.style.textAlign="left"; box.textContent="lädt …"; kv.append(box);
+    loadPasses(p.id).then(rows=>{ if(selected!==p) return; box.replaceChildren(); if(!rows.length){ box.textContent="Noch keine Durchfahrten."; return; }
+      for(const m of rows){ const d=document.createElement("div"); const over=m.speed_kmh-m.speed_limit; d.className=over>0?"bad":"ok";
+        d.textContent=`${PROF[m.user_id]||"?"} · ${m.speed_kmh} km/h ${over>0?"(+"+over+") ✖":"✔"} · ${new Date(m.created_at).toLocaleDateString("de-DE",{day:"2-digit",month:"2-digit"})}`; box.append(d); } });
+    [lat,lon]=[p.lat,p.lon];
+  } else if(p.type==="crew"){
     $("cName").textContent=p.label; $("cSub").textContent="Crew-Pin · "+(KIND[p.kind]||KIND.other).l;
     add("Gegend",placeOf(p.x,p.y)); add("Gesetzt von",names[p.by]||"Jemand aus der Crew");
     if(p.at) add("Am",new Date(p.at).toLocaleDateString("de-DE",{day:"2-digit",month:"2-digit",year:"numeric"}));
@@ -430,6 +501,7 @@ function select(p){
   const b1=document.createElement("button"); b1.className="btn pri"; b1.textContent="Wegpunkt setzen"; b1.onclick=()=>setWaypoint(p); acts.append(b1);
   const a=document.createElement("a"); a.className="btn"; a.href=gmaps(lat.toFixed(6),lon.toFixed(6)); a.target="_blank"; a.rel="noopener"; a.textContent="In Google Maps navigieren"; acts.append(a);
   
+  if(p.type==="blitz" && SB.user && p.created_by===SB.user.id){ const b2=document.createElement("button"); b2.className="btn warn"; b2.textContent="Blitzer entfernen"; b2.onclick=()=>deleteBlitz(p.id); acts.append(b2); }
   card.classList.add("show"); requestDraw();
 }
 $("cClose").onclick=()=>select(null);
@@ -488,6 +560,107 @@ $("meForm").addEventListener("submit",e=>{ e.preventDefault(); const c=parseCoor
 
 let toastT=0; function toast(t){ const el=$("toast"); el.textContent=t; el.classList.add("show"); clearTimeout(toastT); toastT=setTimeout(()=>el.classList.remove("show"),2800); }
 
+// ---------- Konten, Blitzer, Rangliste (Supabase) ----------
+const SB_URL="https://xlitvyebjvymxzrfmvuv.supabase.co", SB_KEY="sb_publishable_ht_jjiPrH79o0aoLuFMSGg_ShdoO6PJ";
+const SB={c:null,user:null,name:null};
+let BLITZ=[], PROF={};
+const esc=s=>String(s==null?"":s);
+function needLogin(){ if(!SB.c){ toast("Server nicht erreichbar."); return true; } if(!SB.user){ openAuth(); return true; } if(!SB.name){ openName(); return true; } return false; }
+function renderAcct(){ $("acctTxt").textContent = SB.user ? (SB.name ? "👤 "+SB.name : "👤 Angemeldet") : "Nicht angemeldet"; $("acctTxt").className = SB.user?"":"msg"; $("acctBtn").textContent = SB.user ? "Abmelden" : "Anmelden"; $("cBlitz").textContent = SB.user ? BLITZ.length : "–"; }
+$("acctBtn").onclick=async()=>{ if(!SB.c) return toast("Server nicht erreichbar."); if(SB.user){ await SB.c.auth.signOut(); } else openAuth(); };
+let authMode="in";
+function openAuth(){ authMode="in"; syncAuth(); $("authMsg").textContent=""; $("authModal").classList.add("show"); if(innerWidth<=700) legend.classList.remove("open"); }
+function syncAuth(){ const up=authMode==="up"; $("authTtl").textContent=up?"NEUES KONTO":"ANMELDEN"; $("authGo").textContent=up?"Konto erstellen":"Anmelden"; $("authSwitch").textContent=up?"Ich habe schon ein Konto":"Neues Konto erstellen"; $("authName").style.display=up?"":"none"; $("authName").required=up; $("authPw").autocomplete=up?"new-password":"current-password"; }
+$("authSwitch").onclick=()=>{ authMode=authMode==="in"?"up":"in"; syncAuth(); };
+$("authCancel").onclick=()=>$("authModal").classList.remove("show");
+$("authForm").addEventListener("submit",async e=>{ e.preventDefault(); const email=$("authMail").value.trim(), password=$("authPw").value; const msg=$("authMsg"); msg.textContent="…";
+  try{
+    if(authMode==="up"){ const name=$("authName").value.trim(); if(name.length<2){ msg.textContent="Name mind. 2 Zeichen."; return; }
+      const {data,error}=await SB.c.auth.signUp({email,password,options:{data:{name}}}); if(error) throw error;
+      try{ localStorage.setItem("sl_pending_name",name); }catch(_){}
+      if(!data.session){ msg.textContent="Fast geschafft: Bestätige den Link in deiner E-Mail und melde dich dann hier an."; authMode="in"; syncAuth(); return; }
+    } else { const {error}=await SB.c.auth.signInWithPassword({email,password}); if(error) throw error; }
+    $("authModal").classList.remove("show"); $("authPw").value="";
+  }catch(err){ const m=String(err&&err.message||err); msg.textContent = /Invalid login/i.test(m)?"E-Mail oder Passwort falsch.":/not confirmed/i.test(m)?"E-Mail noch nicht bestätigt – schau in dein Postfach.":/already registered/i.test(m)?"Diese E-Mail hat schon ein Konto – melde dich an.":"Fehler: "+m; }
+});
+function openName(){ $("nameIn").value=""; $("nameModal").classList.add("show"); }
+$("nameForm").addEventListener("submit",async e=>{ e.preventDefault(); const name=$("nameIn").value.trim(); if(name.length<2) return; await saveName(name); $("nameModal").classList.remove("show"); });
+async function saveName(name){ const {error}=await SB.c.from("profiles").upsert({id:SB.user.id,name}); if(error){ toast("Name konnte nicht gespeichert werden: "+error.message); return false; } SB.name=name; PROF[SB.user.id]=name; renderAcct(); return true; }
+async function loadMe(){
+  if(!SB.user){ SB.name=null; BLITZ=[]; renderAcct(); requestDraw(); return; }
+  const {data}=await SB.c.from("profiles").select("name").eq("id",SB.user.id).maybeSingle();
+  if(data) SB.name=data.name;
+  else { let pend=null; try{ pend=localStorage.getItem("sl_pending_name"); }catch(_){} pend = pend || (SB.user.user_metadata&&SB.user.user_metadata.name);
+    if(pend && await saveName(pend)){ try{ localStorage.removeItem("sl_pending_name"); }catch(_){} } else openName(); }
+  renderAcct(); await loadBlitz();
+}
+async function loadProfiles(){ const {data}=await SB.c.from("profiles").select("id,name"); if(data){ PROF={}; for(const p of data) PROF[p.id]=p.name; } }
+async function loadBlitz(){ if(!SB.user) return; await loadProfiles(); const {data,error}=await SB.c.from("blitzer").select("*").order("id");
+  if(error){ toast("Blitzer laden fehlgeschlagen: "+error.message); return; }
+  BLITZ=data.map(b=>{ const [x,y]=proj(b.lat,b.lon); return {...b,type:"blitz",x,y}; }); renderAcct(); requestDraw(); }
+let blzPos=null, blzLimit=50;
+function openBlzModal(x,y){ blzPos={x,y}; $("blzName").value=streetAt(x,y)||""; $("blzModal").classList.add("show"); setMode(null); }
+document.querySelectorAll("#limits .btn").forEach(b=>b.onclick=()=>{ blzLimit=+b.dataset.l; document.querySelectorAll("#limits .btn").forEach(x=>x.classList.toggle("on",x===b)); });
+$("blzCancel").onclick=()=>$("blzModal").classList.remove("show");
+$("blzForm").addEventListener("submit",async e=>{ e.preventDefault(); if(!blzPos) return; const [lat,lon]=unproj(blzPos.x,blzPos.y);
+  const {error}=await SB.c.from("blitzer").insert({name:$("blzName").value.trim().slice(0,40),lat,lon,speed_limit:blzLimit});
+  $("blzModal").classList.remove("show"); if(error){ toast("Fehler: "+error.message); return; } toast("📸 Blitzer aufgestellt – alle sehen ihn."); loadBlitz(); });
+async function deleteBlitz(id){ const {error}=await SB.c.from("blitzer").delete().eq("id",id); if(error) return toast("Löschen fehlgeschlagen."); select(null); toast("Blitzer entfernt."); loadBlitz(); }
+async function loadPasses(id){ const {data}=await SB.c.from("messungen").select("*").eq("blitzer_id",id).order("created_at",{ascending:false}).limit(12); return data||[]; }
+$("btnBlitz").onclick=()=>{ if(needLogin()) return; setMode(mode==="blitz"?null:"blitz"); };
+// Rangliste
+let rankTab="rank";
+$("btnRank").onclick=()=>{ if(needLogin()) return; $("rankModal").classList.add("show"); if(innerWidth<=700) legend.classList.remove("open"); renderRank(); };
+$("rankClose").onclick=()=>$("rankModal").classList.remove("show");
+document.querySelectorAll("#rankModal .tabs button").forEach(b=>b.onclick=()=>{ rankTab=b.dataset.t; document.querySelectorAll("#rankModal .tabs button").forEach(x=>x.classList.toggle("on",x===b)); renderRank(); });
+async function renderRank(){
+  const lb=$("lb"); lb.replaceChildren(); const info=t=>{ const d=document.createElement("div"); d.className="lbr"; d.innerHTML=""; const s=document.createElement("span"); s.className="st"; s.style.gridColumn="1/4"; s.textContent=t; d.append(s); lb.append(d); };
+  info("lädt …"); await loadProfiles();
+  if(rankTab==="rank"){
+    const {data,error}=await SB.c.from("rangliste").select("*"); lb.replaceChildren(); if(error) return info("Fehler: "+error.message);
+    const rows=(data||[]).filter(r=>r.durchfahrten>0).sort((a,b)=>(b.quote_im_limit-a.quote_im_limit)||(a.strafzettel-b.strafzettel)||(b.durchfahrten-a.durchfahrten));
+    if(!rows.length) return info("Noch keine Messungen. Stellt Blitzer auf und fahrt mit aktivem GPS durch.");
+    rows.forEach((r,i)=>{ const d=document.createElement("div"); d.className="lbr"+(SB.user&&r.user_id===SB.user.id?" me":"");
+      const rk=document.createElement("span"); rk.className="rk"; rk.textContent=i===0?"🥇":i===1?"🥈":i===2?"🥉":String(i+1);
+      const nm=document.createElement("span"); nm.className="nm"; nm.textContent=r.name;
+      const q=document.createElement("span"); q.className="q "+(r.quote_im_limit>=90?"ok":r.quote_im_limit<60?"bad":""); q.textContent=r.quote_im_limit+" %";
+      const st=document.createElement("span"); st.className="st"; st.textContent=`${r.durchfahrten} Durchfahrten · ${r.strafzettel} Strafzettel${r.max_ueberschreitung>0?" · max. +"+r.max_ueberschreitung+" km/h":""}`;
+      d.append(rk,nm,q,st); lb.append(d); });
+    info("Sortiert nach Anteil der Durchfahrten im Limit.");
+  } else {
+    const {data,error}=await SB.c.from("messungen").select("*, blitzer(name)").order("created_at",{ascending:false}).limit(150); lb.replaceChildren(); if(error) return info("Fehler: "+error.message);
+    const rows=(data||[]).filter(m=>m.speed_kmh>m.speed_limit).slice(0,40); if(!rows.length) return info("Keine Strafzettel – vorbildlich! 👏");
+    for(const m of rows){ const d=document.createElement("div"); d.className="lbr"+(SB.user&&m.user_id===SB.user.id?" me":"");
+      const rk=document.createElement("span"); rk.className="rk"; rk.textContent="✖";
+      const nm=document.createElement("span"); nm.className="nm"; nm.textContent=PROF[m.user_id]||"?";
+      const q=document.createElement("span"); q.className="q bad"; q.textContent="+"+(m.speed_kmh-m.speed_limit);
+      const st=document.createElement("span"); st.className="st"; st.textContent=`${m.speed_kmh} statt ${m.speed_limit} km/h · ${(m.blitzer&&m.blitzer.name)||"Blitzer"} · ${new Date(m.created_at).toLocaleString("de-DE",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}`;
+      d.append(rk,nm,q,st); lb.append(d); }
+  }
+}
+// Messung bei Durchfahrt
+const zone={}, lastRec={};
+function checkBlitz(x,y,t){
+  if(!SB.user||!SB.name||!BLITZ.length) return;
+  for(const b of BLITZ){ const d=hyp(x,y,b.x,b.y), z=zone[b.id];
+    if(d<=b.radius_m && gps.acc<=35){ if(!z) zone[b.id]={max:gps.speed,t0:t}; else z.max=Math.max(z.max,gps.speed); }
+    else if(z && (d>b.radius_m+15 || t-z.t0>25000)){ delete zone[b.id]; if(lastRec[b.id] && t-lastRec[b.id]<90000) continue; if(z.max<5) continue; lastRec[b.id]=t; recordPass(b,Math.round(z.max)); } }
+}
+async function recordPass(b,kmh){
+  const over=kmh-b.speed_limit; const fl=$("flash"); fl.classList.remove("go"); void fl.offsetWidth; fl.classList.add("go");
+  const tk=$("ticket"); $("tkSpd").textContent=kmh+" km/h"; $("tkTxt").textContent= over>0 ? `${over} km/h zu schnell ✖ · ${b.name}` : `Im Limit (${b.speed_limit}) ✔ · ${b.name}`;
+  tk.classList.toggle("bad",over>0); tk.classList.add("show"); setTimeout(()=>tk.classList.remove("show"),3500);
+  try{ if(navigator.vibrate) navigator.vibrate(over>0?[200,100,200]:80); }catch(_){}
+  const {error}=await SB.c.from("messungen").insert({blitzer_id:b.id,speed_kmh:Math.min(300,kmh),speed_limit:b.speed_limit}); if(error) toast("Messung nicht gespeichert: "+error.message);
+}
+(async function initSB(){
+  if(!window.supabase||!window.supabase.createClient){ $("acctTxt").textContent="Konten gerade nicht verfügbar"; return; }
+  SB.c=window.supabase.createClient(SB_URL,SB_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
+  SB.c.auth.onAuthStateChange((ev,session)=>{ const u=session?session.user:null; const changed=(u&&u.id)!==(SB.user&&SB.user.id); SB.user=u; if(changed) setTimeout(loadMe,0); });
+  const {data}=await SB.c.auth.getSession(); SB.user=data.session?data.session.user:null; await loadMe();
+  setInterval(()=>{ if(SB.user&&document.visibilityState==="visible") loadBlitz(); },60000);
+})();
+
 // ---------- Live-GPS ----------
 const gps={on:false,id:null,acc:0,heading:0,speed:0,max:0,last:null,follow:false,lastRoute:0,arrived:false,wake:null};
 const hudEl=$("hud"), spdEl=$("spd"), arc=$("gArc");
@@ -518,6 +691,7 @@ function onFix(pos){
   const st=inMap?streetAt(x,y):null; $("stName").textContent=st||(inMap?"":"Außerhalb der Karte"); $("stArea").textContent=inMap?placeOf(x,y):"";
   $("street").classList.add("show");
   if(gps.follow && inMap){ view.x=x; view.y=y; clampView(); }
+  checkBlitz(x,y,t);
   if(wp && inMap){ const dW=hyp(x,y,wp.x,wp.y);
     if(dW<40 && !gps.arrived){ gps.arrived=true; toast("🏁 Ziel erreicht!"); }
     else if(t-gps.lastRoute>4000){ gps.lastRoute=t; const r=route(me,wp); if(r){ rt=r; $("bDist").textContent=fmtKm(r.meters); $("bTime").textContent="· ca. "+Math.max(1,Math.round(r.secs/60))+" Min."; } } }
