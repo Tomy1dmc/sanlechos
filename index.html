@@ -610,6 +610,7 @@ async function loadMe(){
   else { let pend=null; try{ pend=localStorage.getItem("sl_pending_name"); }catch(_){} pend = pend || (SB.user.user_metadata&&SB.user.user_metadata.name);
     if(pend && await saveName(pend)){ try{ localStorage.removeItem("sl_pending_name"); }catch(_){} } else openName(); }
   renderAcct(); await loadBlitz();
+  setTimeout(()=>{ if(SB.user && !gps.on) startGps(); },300);
 }
 async function loadProfiles(){ const {data}=await SB.c.from("profiles").select("id,name"); if(data){ PROF={}; for(const p of data) PROF[p.id]=p.name; } }
 async function loadBlitz(){ if(!SB.user) return; await loadProfiles(); const {data,error}=await SB.c.from("blitzer").select("*").order("id");
@@ -718,22 +719,27 @@ function onFix(pos){
     else if(t-gps.lastRoute>4000){ gps.lastRoute=t; const r=route(me,wp); if(r){ rt=r; $("bDist").textContent=fmtKm(r.meters); $("bTime").textContent="· ca. "+Math.max(1,Math.round(r.secs/60))+" Min."; } } }
   requestDraw();
 }
-function onGpsErr(e){ const msg = e.code===1 ? "Standortzugriff verweigert – in den Browser-Einstellungen erlauben." : e.code===2 ? "Kein GPS-Signal." : "GPS-Zeitüberschreitung, versuche weiter …";
-  $("gpsHint").textContent=msg; if(e.code===1){ stopGps(); toast(msg); } }
+function onGpsErr(e){ const msg = e.code===1 ? "Standort ist blockiert. iPhone: Einstellungen → Datenschutz → Ortungsdienste → Safari-Websites → „Beim Verwenden“. Android: Chrome → ⋮ → Einstellungen → Website-Einstellungen → Standort → erlauben." : e.code===2 ? "Kein GPS-Signal." : "GPS-Zeitüberschreitung, versuche weiter …";
+  $("gpsHint").textContent=msg; if(e.code===1){ stopGps(); gps.userStopped=true; toast("Standortzugriff blockiert – Anleitung unter ☰ Legende."); } }
 async function wake(){ try{ if("wakeLock" in navigator) gps.wake=await navigator.wakeLock.request("screen"); }catch(e){} }
-document.addEventListener("visibilitychange",()=>{ if(gps.on && document.visibilityState==="visible") wake(); });
+document.addEventListener("visibilitychange",()=>{ if(document.visibilityState!=="visible") return;
+  if(gps.on){ wake(); try{ navigator.geolocation.clearWatch(gps.id); }catch(_){} gps.last=null; gps.id=navigator.geolocation.watchPosition(onFixWrap,onGpsErr,GEO_OPT); }
+  else if(SB.user && !gps.userStopped) startGps(); });
+const GEO_OPT={enableHighAccuracy:true, maximumAge:1000, timeout:15000};
+function onFixWrap(p){ const first=!gps.last; onFix(p); if(first && !gps.follow && !gps.userPanned) setFollow(true); }
 function startGps(){
   if(!("geolocation" in navigator)){ toast("Dieses Gerät/Browser kann kein GPS."); return; }
   if(location.protocol!=="https:" && location.hostname!=="localhost"){ toast("GPS geht nur über https – lade die Seite z. B. über GitHub Pages."); return; }
   gps.on=true; gps.arrived=false; if(innerWidth<=700) legend.classList.remove("open"); hudEl.classList.add("show"); $("btnGps").textContent="⏹ GPS stoppen"; $("btnGps").classList.add("on");
   $("gpsHint").textContent="Suche GPS-Signal … Bildschirm bleibt an, solange die Seite offen ist."; $("hudAcc").textContent="Suche …";
-  gps.id=navigator.geolocation.watchPosition(p=>{ const first=!gps.last; onFix(p); if(first){ setFollow(true); $("gpsHint").textContent="GPS aktiv. Karte ziehen = Folgen aus, ➤ = wieder folgen."; } }, onGpsErr, {enableHighAccuracy:true, maximumAge:1000, timeout:15000});
+  gps.userStopped=false;
+  gps.id=navigator.geolocation.watchPosition(p=>{ const first=!gps.last; onFix(p); if(first){ setFollow(true); $("gpsHint").textContent="GPS ist immer an. Karte ziehen = Folgen aus, ➤ = wieder folgen."; } }, onGpsErr, GEO_OPT);
   wake();
 }
 function stopGps(){ if(gps.id!=null) navigator.geolocation.clearWatch(gps.id); gps.id=null; gps.on=false; gps.last=null; setFollow(false);
   hudEl.classList.remove("show"); $("street").classList.remove("show"); $("btnGps").textContent="📡 GPS starten"; $("btnGps").classList.remove("on");
   try{ gps.wake&&gps.wake.release(); }catch(e){} requestDraw(); }
-$("btnGps").onclick=()=>{ gps.on?stopGps():startGps(); };
+$("btnGps").onclick=()=>{ if(gps.on){ stopGps(); gps.userStopped=true; toast("GPS pausiert – startet beim nächsten Öffnen automatisch wieder."); } else startGps(); };
 const _sw=setWaypoint; 
 
 // ---------- Start ----------
