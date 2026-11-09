@@ -214,7 +214,7 @@
 </div></div>
 <div class="modal" id="rankModal"><div class="box panel" style="width:min(440px,calc(100% - 24px))">
   <h3 style="border-color:var(--acc);display:flex;justify-content:space-between">RANGLISTE <button class="btn" id="rankClose" style="padding:2px 9px">✕</button></h3>
-  <div class="tabs"><button class="on" data-t="rank">Sauberste Fahrer</button><button data-t="tix">Strafzettel</button></div>
+  <div class="tabs"><button class="on" data-t="worst">Sünderliste</button><button data-t="rank">Sauberste</button><button data-t="tix">Strafzettel</button></div>
   <div class="lb" id="lb"></div>
 </div></div>
 <script>
@@ -609,24 +609,28 @@ async function deleteBlitz(id){ const {error}=await SB.c.from("blitzer").delete(
 async function loadPasses(id){ const {data}=await SB.c.from("messungen").select("*").eq("blitzer_id",id).order("created_at",{ascending:false}).limit(12); return data||[]; }
 $("btnBlitz").onclick=()=>{ if(needLogin()) return; setMode(mode==="blitz"?null:"blitz"); };
 // Rangliste
-let rankTab="rank";
+let rankTab="worst";
 $("btnRank").onclick=()=>{ if(needLogin()) return; $("rankModal").classList.add("show"); if(innerWidth<=700) legend.classList.remove("open"); renderRank(); };
 $("rankClose").onclick=()=>$("rankModal").classList.remove("show");
 document.querySelectorAll("#rankModal .tabs button").forEach(b=>b.onclick=()=>{ rankTab=b.dataset.t; document.querySelectorAll("#rankModal .tabs button").forEach(x=>x.classList.toggle("on",x===b)); renderRank(); });
 async function renderRank(){
   const lb=$("lb"); lb.replaceChildren(); const info=t=>{ const d=document.createElement("div"); d.className="lbr"; d.innerHTML=""; const s=document.createElement("span"); s.className="st"; s.style.gridColumn="1/4"; s.textContent=t; d.append(s); lb.append(d); };
   info("lädt …"); await loadProfiles();
-  if(rankTab==="rank"){
+  if(rankTab==="rank"||rankTab==="worst"){
+    const worst=rankTab==="worst";
     const {data,error}=await SB.c.from("rangliste").select("*"); lb.replaceChildren(); if(error) return info("Fehler: "+error.message);
-    const rows=(data||[]).filter(r=>r.durchfahrten>0).sort((a,b)=>(b.quote_im_limit-a.quote_im_limit)||(a.strafzettel-b.strafzettel)||(b.durchfahrten-a.durchfahrten));
+    let rows=(data||[]).filter(r=>r.durchfahrten>0);
+    if(worst){ rows=rows.filter(r=>r.strafzettel>0).sort((a,b)=>(b.strafzettel-a.strafzettel)||(a.quote_im_limit-b.quote_im_limit)||(b.max_ueberschreitung-a.max_ueberschreitung));
+      if(!rows.length){ return info((data||[]).some(r=>r.durchfahrten>0)?"Niemand war zu schnell – vorbildlich! 👏":"Noch keine Messungen. Stellt Blitzer auf und fahrt mit aktivem GPS durch."); } }
+    else rows.sort((a,b)=>(b.quote_im_limit-a.quote_im_limit)||(a.strafzettel-b.strafzettel)||(b.durchfahrten-a.durchfahrten));
     if(!rows.length) return info("Noch keine Messungen. Stellt Blitzer auf und fahrt mit aktivem GPS durch.");
     rows.forEach((r,i)=>{ const d=document.createElement("div"); d.className="lbr"+(SB.user&&r.user_id===SB.user.id?" me":"");
-      const rk=document.createElement("span"); rk.className="rk"; rk.textContent=i===0?"🥇":i===1?"🥈":i===2?"🥉":String(i+1);
+      const rk=document.createElement("span"); rk.className="rk"; rk.textContent=worst?(i===0?"🚨":String(i+1)):(i===0?"🥇":i===1?"🥈":i===2?"🥉":String(i+1));
       const nm=document.createElement("span"); nm.className="nm"; nm.textContent=r.name;
-      const q=document.createElement("span"); q.className="q "+(r.quote_im_limit>=90?"ok":r.quote_im_limit<60?"bad":""); q.textContent=r.quote_im_limit+" %";
-      const st=document.createElement("span"); st.className="st"; st.textContent=`${r.durchfahrten} Durchfahrten · ${r.strafzettel} Strafzettel${r.max_ueberschreitung>0?" · max. +"+r.max_ueberschreitung+" km/h":""}`;
+      const q=document.createElement("span"); if(worst){ q.className="q bad"; q.textContent=r.strafzettel+" ✖"; } else { q.className="q "+(r.quote_im_limit>=90?"ok":r.quote_im_limit<60?"bad":""); q.textContent=r.quote_im_limit+" %"; }
+      const st=document.createElement("span"); st.className="st"; st.textContent= worst ? `${r.strafzettel} von ${r.durchfahrten} Durchfahrten zu schnell (${100-r.quote_im_limit} %) · max. +${r.max_ueberschreitung} km/h` : `${r.durchfahrten} Durchfahrten · ${r.strafzettel} Strafzettel${r.max_ueberschreitung>0?" · max. +"+r.max_ueberschreitung+" km/h":""}`;
       d.append(rk,nm,q,st); lb.append(d); });
-    info("Sortiert nach Anteil der Durchfahrten im Limit.");
+    info(worst?"Sortiert nach Anzahl Strafzettel – wer oben steht, sollte langsamer fahren.":"Sortiert nach Anteil der Durchfahrten im Limit.");
   } else {
     const {data,error}=await SB.c.from("messungen").select("*, blitzer(name)").order("created_at",{ascending:false}).limit(150); lb.replaceChildren(); if(error) return info("Fehler: "+error.message);
     const rows=(data||[]).filter(m=>m.speed_kmh>m.speed_limit).slice(0,40); if(!rows.length) return info("Keine Strafzettel – vorbildlich! 👏");
