@@ -101,6 +101,12 @@
   .ok{color:#5fe39b} .bad{color:#ff7b7b}
   .limits{display:grid;grid-template-columns:repeat(5,1fr);gap:6px} .limits .btn{text-align:center;padding:8px 0}
   .msg{color:var(--mut);font-size:14px;line-height:1.35}
+  .modal.gate{background:radial-gradient(ellipse at 50% 30%,rgba(30,34,42,.92),rgba(8,9,12,.98));z-index:20;flex-direction:column;gap:18px}
+  .gate .logo{display:none;font-family:Oswald;font-weight:700;font-size:44px;letter-spacing:.08em;color:#fff;text-shadow:0 3px 10px #000;text-align:center;line-height:1}
+  .gate .logo span{color:var(--acc)} .gate .logo small{display:block;font-family:Rajdhani;font-weight:600;font-size:13px;letter-spacing:.2em;color:var(--mut);margin-top:6px}
+  .modal.gate .logo{display:block} .modal.gate #authCancel{display:none}
+  .remember{display:flex;align-items:center;gap:8px;font-size:15px;color:var(--txt);cursor:pointer;user-select:none}
+  .remember input{width:18px;height:18px;accent-color:var(--acc)}
   .flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none;z-index:8}
   .flash.go{animation:fl .5s ease-out}
   @keyframes fl{0%{opacity:.85}100%{opacity:0}}
@@ -188,12 +194,13 @@
 </div>
 <div class="flash" id="flash"></div>
 <div class="ticket panel" id="ticket"><b id="tkSpd"></b><span id="tkTxt"></span></div>
-<div class="modal" id="authModal"><div class="box panel">
+<div class="modal show gate" id="authModal"><div class="logo">SAN <span>LECHOS</span><small>Nur für die Crew – bitte anmelden</small></div><div class="box panel">
   <h3 style="border-color:var(--acc)" id="authTtl">ANMELDEN</h3>
-  <form class="in" id="authForm">
-    <input id="authMail" type="email" placeholder="E-Mail" autocomplete="email" required>
-    <input id="authPw" type="password" placeholder="Passwort (mind. 6 Zeichen)" autocomplete="current-password" minlength="6" required>
+  <form class="in" id="authForm" method="post" action="#">
+    <input id="authMail" name="email" type="email" placeholder="E-Mail" autocomplete="username email" required>
+    <input id="authPw" name="password" type="password" placeholder="Passwort (mind. 6 Zeichen)" autocomplete="current-password" minlength="6" required>
     <input id="authName" placeholder="Spielername (für die Rangliste)" maxlength="24" style="display:none">
+    <label class="remember"><input type="checkbox" id="authRemember" checked> Angemeldet bleiben</label>
     <div class="msg" id="authMsg"></div>
     <div class="acts"><button type="submit" class="btn pri" id="authGo">Anmelden</button></div>
     <div class="acts"><button type="button" class="btn" id="authSwitch">Neues Konto erstellen</button><button type="button" class="btn" id="authCancel">Abbrechen</button></div>
@@ -564,32 +571,40 @@ let toastT=0; function toast(t){ const el=$("toast"); el.textContent=t; el.class
 
 // ---------- Konten, Blitzer, Rangliste (Supabase) ----------
 const SB_URL="https://xlitvyebjvymxzrfmvuv.supabase.co", SB_KEY="sb_publishable_ht_jjiPrH79o0aoLuFMSGg_ShdoO6PJ";
-const SB={c:null,user:null,name:null};
+const SB={c:null,user:null,name:null,ready:false};
+const LS={get(k){try{return localStorage.getItem(k)}catch(e){return null}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}},del(k){try{localStorage.removeItem(k)}catch(e){}}};
+const remembered=()=>LS.get("sl_remember")!=="0";
+const authStore={ getItem(k){ try{ return localStorage.getItem(k) ?? sessionStorage.getItem(k); }catch(e){ return null; } },
+  setItem(k,v){ try{ if(remembered()){ localStorage.setItem(k,v); sessionStorage.removeItem(k); } else { sessionStorage.setItem(k,v); localStorage.removeItem(k); } }catch(e){} },
+  removeItem(k){ try{ localStorage.removeItem(k); sessionStorage.removeItem(k); }catch(e){} } };
+function gate(){ const m=$("authModal"); const need=SB.ready && !SB.user; m.classList.toggle("gate", need || (!SB.ready)); if(need){ if(!m.classList.contains("show")) openAuth(); } else if(SB.user && m.classList.contains("gate")){ m.classList.remove("show","gate"); } }
 let BLITZ=[], PROF={};
 const esc=s=>String(s==null?"":s);
 function needLogin(){ if(!SB.c){ toast("Server nicht erreichbar."); return true; } if(!SB.user){ openAuth(); return true; } if(!SB.name){ openName(); return true; } return false; }
 function renderAcct(){ $("acctTxt").textContent = SB.user ? (SB.name ? "👤 "+SB.name : "👤 Angemeldet") : "Nicht angemeldet"; $("acctTxt").className = SB.user?"":"msg"; $("acctBtn").textContent = SB.user ? "Abmelden" : "Anmelden"; $("cBlitz").textContent = SB.user ? BLITZ.length : "–"; }
 $("acctBtn").onclick=async()=>{ if(!SB.c) return toast("Server nicht erreichbar."); if(SB.user){ await SB.c.auth.signOut(); } else openAuth(); };
 let authMode="in";
-function openAuth(){ authMode="in"; syncAuth(); $("authMsg").textContent=""; $("authModal").classList.add("show"); if(innerWidth<=700) legend.classList.remove("open"); }
+function openAuth(){ authMode="in"; syncAuth(); $("authMsg").textContent=""; const lm=LS.get("sl_last_mail"); if(lm && !$("authMail").value) $("authMail").value=lm; $("authRemember").checked=remembered(); $("authModal").classList.add("show"); if(innerWidth<=700) legend.classList.remove("open"); }
 function syncAuth(){ const up=authMode==="up"; $("authTtl").textContent=up?"NEUES KONTO":"ANMELDEN"; $("authGo").textContent=up?"Konto erstellen":"Anmelden"; $("authSwitch").textContent=up?"Ich habe schon ein Konto":"Neues Konto erstellen"; $("authName").style.display=up?"":"none"; $("authName").required=up; $("authPw").autocomplete=up?"new-password":"current-password"; }
 $("authSwitch").onclick=()=>{ authMode=authMode==="in"?"up":"in"; syncAuth(); };
-$("authCancel").onclick=()=>$("authModal").classList.remove("show");
-$("authForm").addEventListener("submit",async e=>{ e.preventDefault(); const email=$("authMail").value.trim(), password=$("authPw").value; const msg=$("authMsg"); msg.textContent="…";
+$("authCancel").onclick=()=>{ if($("authModal").classList.contains("gate")) return; $("authModal").classList.remove("show"); };
+$("authForm").addEventListener("submit",async e=>{ e.preventDefault(); const email=$("authMail").value.trim(), password=$("authPw").value; const msg=$("authMsg"); msg.textContent="…"; LS.set("sl_remember",$("authRemember").checked?"1":"0"); LS.set("sl_last_mail",email);
   try{
     if(authMode==="up"){ const name=$("authName").value.trim(); if(name.length<2){ msg.textContent="Name mind. 2 Zeichen."; return; }
       const {data,error}=await SB.c.auth.signUp({email,password,options:{data:{name}}}); if(error) throw error;
       try{ localStorage.setItem("sl_pending_name",name); }catch(_){}
       if(!data.session){ msg.textContent="Fast geschafft: Bestätige den Link in deiner E-Mail und melde dich dann hier an."; authMode="in"; syncAuth(); return; }
     } else { const {error}=await SB.c.auth.signInWithPassword({email,password}); if(error) throw error; }
-    $("authModal").classList.remove("show"); $("authPw").value="";
+    try{ if(window.PasswordCredential && navigator.credentials){ navigator.credentials.store(new PasswordCredential({id:email,password})).catch(()=>{}); } }catch(_){}
+    $("authModal").classList.remove("show","gate"); $("authPw").value="";
   }catch(err){ const m=String(err&&err.message||err); msg.textContent = /Invalid login/i.test(m)?"E-Mail oder Passwort falsch.":/not confirmed/i.test(m)?"E-Mail noch nicht bestätigt – schau in dein Postfach.":/already registered/i.test(m)?"Diese E-Mail hat schon ein Konto – melde dich an.":"Fehler: "+m; }
 });
 function openName(){ $("nameIn").value=""; $("nameModal").classList.add("show"); }
 $("nameForm").addEventListener("submit",async e=>{ e.preventDefault(); const name=$("nameIn").value.trim(); if(name.length<2) return; await saveName(name); $("nameModal").classList.remove("show"); });
 async function saveName(name){ const {error}=await SB.c.from("profiles").upsert({id:SB.user.id,name}); if(error){ toast("Name konnte nicht gespeichert werden: "+error.message); return false; } SB.name=name; PROF[SB.user.id]=name; renderAcct(); return true; }
 async function loadMe(){
-  if(!SB.user){ SB.name=null; BLITZ=[]; renderAcct(); requestDraw(); return; }
+  if(!SB.user){ SB.name=null; BLITZ=[]; renderAcct(); requestDraw(); gate(); return; }
+  gate();
   const {data}=await SB.c.from("profiles").select("name").eq("id",SB.user.id).maybeSingle();
   if(data) SB.name=data.name;
   else { let pend=null; try{ pend=localStorage.getItem("sl_pending_name"); }catch(_){} pend = pend || (SB.user.user_metadata&&SB.user.user_metadata.name);
@@ -660,10 +675,10 @@ async function recordPass(b,kmh){
   const {error}=await SB.c.from("messungen").insert({blitzer_id:b.id,speed_kmh:Math.min(300,kmh),speed_limit:b.speed_limit}); if(error) toast("Messung nicht gespeichert: "+error.message);
 }
 (async function initSB(){
-  if(!window.supabase||!window.supabase.createClient){ $("acctTxt").textContent="Konten gerade nicht verfügbar"; return; }
-  SB.c=window.supabase.createClient(SB_URL,SB_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
+  if(!window.supabase||!window.supabase.createClient){ $("acctTxt").textContent="Konten gerade nicht verfügbar"; $("authModal").classList.add("show","gate"); $("authMsg").textContent="Server nicht erreichbar – prüfe deine Internetverbindung und lade die App neu."; return; }
+  SB.c=window.supabase.createClient(SB_URL,SB_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true,storage:authStore,storageKey:"sl-auth"}});
   SB.c.auth.onAuthStateChange((ev,session)=>{ const u=session?session.user:null; const changed=(u&&u.id)!==(SB.user&&SB.user.id); SB.user=u; if(changed) setTimeout(loadMe,0); });
-  const {data}=await SB.c.auth.getSession(); SB.user=data.session?data.session.user:null; await loadMe();
+  const {data}=await SB.c.auth.getSession(); SB.user=data.session?data.session.user:null; SB.ready=true; await loadMe();
   setInterval(()=>{ if(SB.user&&document.visibilityState==="visible") loadBlitz(); },60000);
 })();
 
