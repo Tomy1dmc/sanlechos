@@ -426,21 +426,21 @@ function draw(){
   if(wp){ const [x,y]=toScreen(wp.x,wp.y,view,VW,VH); drawIcon(ctx,"wp",x,y-r-2,r+2); }
   { const [x,y]=toScreen(me.x,me.y,view,VW,VH);
     if(gps.on && gps.acc){ ctx.beginPath(); ctx.arc(x,y,Math.max(14,gps.acc*view.s),0,7); ctx.fillStyle="rgba(94,200,255,.12)"; ctx.fill(); ctx.strokeStyle="rgba(94,200,255,.45)"; ctx.lineWidth=1.5; ctx.stroke(); }
-    ctx.save(); ctx.translate(x,y); ctx.rotate((gps.heading||0)*Math.PI/180); drawIcon(ctx,"me",0,0,12); ctx.restore(); }
+    ctx.save(); ctx.translate(x,y); ctx.rotate((gps.dispH??gps.heading??0)*Math.PI/180); drawIcon(ctx,"me",0,0,12); ctx.restore(); }
   // Maßstab
   const target=120/s, steps=[20,50,100,200,500,1000,2000,5000]; let m=steps[0]; for(const st of steps) if(st<=target) m=st;
   const px=m*s, sx=VW<=700?16:290, sy=VW<=700?78:VH-22;
   ctx.fillStyle="rgba(0,0,0,.6)"; ctx.fillRect(sx-6,sy-18,px+12,26); ctx.strokeStyle="#fff"; ctx.lineWidth=2;
   ctx.beginPath(); ctx.moveTo(sx,sy-4); ctx.lineTo(sx,sy); ctx.lineTo(sx+px,sy); ctx.lineTo(sx+px,sy-4); ctx.stroke();
   ctx.font="600 12px Rajdhani, sans-serif"; ctx.fillStyle="#fff"; ctx.fillText(m>=1000?(m/1000)+" km":m+" m",sx+2,sy-10);
-  drawMini(); if(selected) requestDraw();
+  { const n=performance.now(); if(!gps.on || n-(gps.lm||0)>250){ gps.lm=n; drawMini(); } } if(selected) requestDraw();
 }
 function drawMini(){
   if(!MW||mcv.offsetParent===null) return; const v={x:me.x,y:me.y,s:0.05}; drawWorld(mctx,MW,MH,v,true); if(!ready) return;
   for(const p of visiblePois()){ let [x,y]=toScreen(p.x,p.y,v,MW,MH); if(x<-4||x>MW+4||y<-4||y>MH+4) continue; drawIcon(mctx,p.type,x,y,5); }
   if(layers.blitz) for(const b of BLITZ){ const [x,y]=toScreen(b.x,b.y,v,MW,MH); if(x>-4&&x<MW+4&&y>-4&&y<MH+4) drawIcon(mctx,"blitz",x,y,5); }
   if(wp){ let [x,y]=toScreen(wp.x,wp.y,v,MW,MH); x=Math.max(8,Math.min(MW-8,x)); y=Math.max(14,Math.min(MH-4,y)); drawIcon(mctx,"wp",x,y-6,7); }
-  mctx.save(); mctx.translate(MW/2,MH/2); mctx.rotate((gps.heading||0)*Math.PI/180); drawIcon(mctx,"me",0,0,8); mctx.restore(); $("miniLbl").textContent=placeOf(me.x,me.y);
+  mctx.save(); mctx.translate(MW/2,MH/2); mctx.rotate((gps.dispH??gps.heading??0)*Math.PI/180); drawIcon(mctx,"me",0,0,8); mctx.restore(); $("miniLbl").textContent=placeOf(me.x,me.y);
 }
 let raf=0; function requestDraw(){ if(!raf) raf=requestAnimationFrame(()=>{raf=0; draw();}); }
 
@@ -706,18 +706,34 @@ function onFix(pos){
   const kmh = spd!=null ? spd*3.6 : 0; gps.speed = gps.speed*0.4 + kmh*0.6; if(gps.speed<2) gps.speed=0;
   if(hd!=null && gps.speed>3) gps.heading=hd;
   if(gps.acc<50 && gps.speed<300) gps.max=Math.max(gps.max,gps.speed);
-  me={x,y}; store.set("aug_me",me);
+  const first=!gps.fix; gps.fix={x,y,pt:performance.now(),v:gps.speed/3.6,h:gps.heading||0};
+  if(first || hyp(me.x,me.y,x,y)>150){ me={x,y}; gps.dispH=gps.heading||0; } store.set("aug_me",{x,y});
+  if(!gps.raf) gps.raf=requestAnimationFrame(gpsAnim);
   const inMap = x>-500&&x<W+500&&y>-500&&y<H+500;
-  spdEl.textContent=Math.round(gps.speed); arc.style.strokeDasharray=(Math.min(1,gps.speed/200)*ARC_LEN)+" 999";
   $("hudAcc").textContent="GPS ±"+Math.round(gps.acc)+" m"; $("hudMax").textContent=gps.max>0?"MAX "+Math.round(gps.max):"";
   const st=inMap?streetAt(x,y):null; $("stName").textContent=st||(inMap?"":"Außerhalb der Karte"); $("stArea").textContent=inMap?placeOf(x,y):"";
   $("street").classList.add("show");
-  if(gps.follow && inMap){ view.x=x; view.y=y; clampView(); }
   checkBlitz(x,y,t);
   if(wp && inMap){ const dW=hyp(x,y,wp.x,wp.y);
     if(dW<40 && !gps.arrived){ gps.arrived=true; toast("🏁 Ziel erreicht!"); }
-    else if(t-gps.lastRoute>4000){ gps.lastRoute=t; const r=route(me,wp); if(r){ rt=r; $("bDist").textContent=fmtKm(r.meters); $("bTime").textContent="· ca. "+Math.max(1,Math.round(r.secs/60))+" Min."; } } }
+    else if(t-gps.lastRoute>4000){ gps.lastRoute=t; const r=route({x,y},wp); if(r){ rt=r; $("bDist").textContent=fmtKm(r.meters); $("bTime").textContent="· ca. "+Math.max(1,Math.round(r.secs/60))+" Min."; } } }
   requestDraw();
+}
+// flüssige Darstellung: zwischen GPS-Punkten mit Tempo + Richtung weiterrechnen (60 fps)
+const DEG=Math.PI/180;
+function gpsAnim(now){
+  if(!gps.on){ gps.raf=0; return; } gps.raf=requestAnimationFrame(gpsAnim);
+  if(document.visibilityState!=="visible" || !gps.fix) return;
+  const f=gps.fix, dt=Math.min(1.5,(now-f.pt)/1000), mv=f.v>0.8;
+  const px=f.x+(mv?Math.sin(f.h*DEG)*f.v*dt:0), py=f.y-(mv?Math.cos(f.h*DEG)*f.v*dt:0);
+  const step=Math.min(100,now-(gps.lt||now)); gps.lt=now; const a=1-Math.exp(-step/180);
+  me={x:me.x+(px-me.x)*a, y:me.y+(py-me.y)*a};
+  let dh=((gps.heading||0)-(gps.dispH||0)+540)%360-180; gps.dispH=((gps.dispH||0)+dh*Math.min(1,a*1.5)+360)%360;
+  gps.dispSpd=(gps.dispSpd||0)+(gps.speed-(gps.dispSpd||0))*Math.min(1,a*1.2);
+  const sv=Math.round(gps.dispSpd); if(sv!==gps.shownSpd){ gps.shownSpd=sv; spdEl.textContent=sv; }
+  arc.style.strokeDasharray=(Math.min(1,gps.dispSpd/200)*ARC_LEN).toFixed(1)+" 999";
+  if(gps.follow){ view.x=me.x; view.y=me.y; clampView(); }
+  if(now-(gps.ld||0)>=30){ gps.ld=now; draw(); }
 }
 function onGpsErr(e){ const msg = e.code===1 ? "Standort ist blockiert. iPhone: Einstellungen → Datenschutz → Ortungsdienste → Safari-Websites → „Beim Verwenden“. Android: Chrome → ⋮ → Einstellungen → Website-Einstellungen → Standort → erlauben." : e.code===2 ? "Kein GPS-Signal." : "GPS-Zeitüberschreitung, versuche weiter …";
   $("gpsHint").textContent=msg; if(e.code===1){ stopGps(); gps.userStopped=true; toast("Standortzugriff blockiert – Anleitung unter ☰ Legende."); } }
@@ -725,7 +741,7 @@ async function wake(){ try{ if("wakeLock" in navigator) gps.wake=await navigator
 document.addEventListener("visibilitychange",()=>{ if(document.visibilityState!=="visible") return;
   if(gps.on){ wake(); try{ navigator.geolocation.clearWatch(gps.id); }catch(_){} gps.last=null; gps.id=navigator.geolocation.watchPosition(onFixWrap,onGpsErr,GEO_OPT); }
   else if(SB.user && !gps.userStopped) startGps(); });
-const GEO_OPT={enableHighAccuracy:true, maximumAge:1000, timeout:15000};
+const GEO_OPT={enableHighAccuracy:true, maximumAge:0, timeout:15000};
 function onFixWrap(p){ const first=!gps.last; onFix(p); if(first && !gps.follow && !gps.userPanned) setFollow(true); }
 function startGps(){
   if(!("geolocation" in navigator)){ toast("Dieses Gerät/Browser kann kein GPS."); return; }
@@ -736,7 +752,7 @@ function startGps(){
   gps.id=navigator.geolocation.watchPosition(p=>{ const first=!gps.last; onFix(p); if(first){ setFollow(true); $("gpsHint").textContent="GPS ist immer an. Karte ziehen = Folgen aus, ➤ = wieder folgen."; } }, onGpsErr, GEO_OPT);
   wake();
 }
-function stopGps(){ if(gps.id!=null) navigator.geolocation.clearWatch(gps.id); gps.id=null; gps.on=false; gps.last=null; setFollow(false);
+function stopGps(){ if(gps.id!=null) navigator.geolocation.clearWatch(gps.id); gps.id=null; gps.on=false; gps.last=null; gps.fix=null; gps.dispSpd=0; setFollow(false);
   hudEl.classList.remove("show"); $("street").classList.remove("show"); $("btnGps").textContent="📡 GPS starten"; $("btnGps").classList.remove("on");
   try{ gps.wake&&gps.wake.release(); }catch(e){} requestDraw(); }
 $("btnGps").onclick=()=>{ if(gps.on){ stopGps(); gps.userStopped=true; toast("GPS pausiert – startet beim nächsten Öffnen automatisch wieder."); } else startGps(); };
